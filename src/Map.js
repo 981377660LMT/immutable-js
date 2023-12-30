@@ -186,13 +186,14 @@ MapPrototype['@@transducer/result'] = function (obj) {
 };
 
 // #pragma Trie Nodes
+
 // !ArrayMapNode 长度>8 -> BitmapIndexedNode 长度>16 -> HashArrayMapNode -> 长度<8 -> BitmapIndexedNode
 
 // Map 中的节点可能为多种 Node，其分别承担不同的职责
 // ArrayMapNode(非叶子) 使用简单的数组存放多个键值对，是最简单的多条目数据结构，仅针对于数据量很少的节点；
 class ArrayMapNode {
   constructor(ownerID, entries) {
-    this.ownerID = ownerID;
+    this.ownerID = ownerID;  // 用于提供 Transient 
     this.entries = entries;
   }
 
@@ -271,13 +272,14 @@ class ArrayMapNode {
   }
 }
 
-// BitmapIndexedNode(非叶子) 根据 Bitmap 索引来计算多个子节点位置，同样使用数据来存放多个子节点，但是搜索效率更高，同时数组可以动态扩展，相对而言内存较为友好。用于针对稍多一些的数据量的节点
+// BitmapIndexedNode(非叶子) 根据 Bitmap 索引来计算多个子节点位置，同样使用数据来存放多个子节点，但是搜索效率更高，同时数组可以动态扩展，相对而言内存较为友好。
+// 用于针对稍多一些的数据量的节点
 // 每一个 BitmapIndexedNode 只取 hash 中的其中 5bit （SHIFT = 5）值进行索引计算
 class BitmapIndexedNode {
   constructor(ownerID, bitmap, nodes) {
     this.ownerID = ownerID;
     this.bitmap = bitmap;  // 32 位的 number，每一位代表一个子节点的存在与否
-    this.nodes = nodes;
+    this.nodes = nodes;  // 拥有的数组长度与子节点数量一致(tail 空间优化)
   }
 
   // get和update方法中传递的参数shift，随着递归的深入，每次增加5。
@@ -377,7 +379,7 @@ class HashArrayMapNode {
   constructor(ownerID, count, nodes) {
     this.ownerID = ownerID;
     this.count = count;
-    this.nodes = nodes;
+    this.nodes = nodes;  // 用于存储子节点的数组长度为32
   }
 
   get(shift, keyHash, key, notSetValue) {
@@ -521,6 +523,7 @@ class HashCollisionNode {
 }
 
 // ValueNode(叶子) 是最简单的节点类型，仅用于存放一个键值对信息；
+// 如果发现冲突，会转为HashCollisionNode。
 class ValueNode {
   constructor(ownerID, keyHash, entry) {
     this.ownerID = ownerID;
@@ -732,6 +735,7 @@ function isLeafNode(node) {
 }
 
 // 将键值对条目合并到BitmapIndexedNode节点中
+// 只要在需要的时候增加或减少节点即可(优化了树的高度)
 function mergeIntoNode(node, ownerID, shift, keyHash, entry) {
   if (node.keyHash === keyHash) {
     // 发现 hash 冲突，将该节点转换为 HashCollisionNode.

@@ -391,12 +391,12 @@ function iterateList(list, reverse) {
 
 function makeList(origin, capacity, level, root, tail, ownerID, hash) {
   const list = Object.create(ListPrototype);
-  list.size = capacity - origin;
-  list._origin = origin;
-  list._capacity = capacity;
-  list._level = level;
-  list._root = root;
-  list._tail = tail;
+  list.size = capacity - origin;// 数组的长度
+  list._origin = origin;// 数组的起始位置 一般是0
+  list._capacity = capacity;// 数组容量 等于 size
+  list._level = level;//树的深度，为0时是叶子结点。默认值是5，存储指数部分，用于方便位运算,增加一个深度，level值+5
+  list._root = root;// trie树实现
+  list._tail = tail;// 32个为一组，存放最后剩余的数据 其实就是 %32
   list.__ownerID = ownerID;
   list.__hash = hash;
   list.__altered = false;

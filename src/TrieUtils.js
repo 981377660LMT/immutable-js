@@ -8,10 +8,11 @@ export const MASK = SIZE - 1;
 
 // A consistent shared value representing "not set" which equals nothing other
 // than itself, and nothing that could be provided externally.
-// 标识符.
+// !相当于None，表示没有设置值.
 export const NOT_SET = {};
 
 // Boolean references, Rough equivalent of `bool &`.
+// 布尔类型指针.
 export function MakeRef() {
   return { value: false };
 }
@@ -75,6 +76,7 @@ export function resolveEnd(end, size) {
   return resolveIndex(end, size, size);
 }
 
+// 处理可能出现的负索引和超出范围的索引，确保返回的索引值在合理的范围内。
 function resolveIndex(index, size, defaultIndex) {
   // Sanitize indices using this shorthand for ToInt32(argument)
   // http://www.ecma-international.org/ecma-262/6.0/#sec-toint32
