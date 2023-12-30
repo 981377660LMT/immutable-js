@@ -63,7 +63,7 @@ export class Map extends KeyedCollection {
   }
 
   // @pragma Access
-
+ // Map 类的 get set remove 方法基本上就是将具体操作交给节点执行，只是作为入口 Api 提供
   get(k, notSetValue) {
     return this._root
       ? this._root.get(0, undefined, k, notSetValue)
@@ -186,15 +186,20 @@ MapPrototype['@@transducer/result'] = function (obj) {
 };
 
 // #pragma Trie Nodes
+// !ArrayMapNode 长度>8 -> BitmapIndexedNode 长度>16 -> HashArrayMapNode -> 长度<8 -> BitmapIndexedNode
 
+// Map 中的节点可能为多种 Node，其分别承担不同的职责
+// ArrayMapNode(非叶子) 使用简单的数组存放多个键值对，是最简单的多条目数据结构，仅针对于数据量很少的节点；
 class ArrayMapNode {
   constructor(ownerID, entries) {
     this.ownerID = ownerID;
     this.entries = entries;
   }
 
+  // ArrayMapNode 很直白，所有的键值对条目都简单的放在数组内
   get(shift, keyHash, key, notSetValue) {
     const entries = this.entries;
+     // 因为 ArrayMapNode 仅应用于较少条目，get 方法就是遍历查找，shift 和 keyHash 都用不着 
     for (let ii = 0, len = entries.length; ii < len; ii++) {
       if (is(key, entries[ii][0])) {
         return entries[ii][1];
@@ -203,9 +208,12 @@ class ArrayMapNode {
     return notSetValue;
   }
 
+  // didChangeSize 和 didAlter 都是指针(ref)
   update(ownerID, shift, keyHash, key, value, didChangeSize, didAlter) {
+    // 如果 value 的值为 NOT_SET 则为删除节点值
     const removed = value === NOT_SET;
 
+     // 寻找对应条目在数组中的下标
     const entries = this.entries;
     let idx = 0;
     const len = entries.length;
@@ -216,23 +224,31 @@ class ArrayMapNode {
     }
     const exists = idx < len;
 
+    // 不存在需要删除的该条目或者条目的值与需更改的值相等则无需操作
     if (exists ? entries[idx][1] === value : removed) {
       return this;
     }
 
+    // 将 didAlter 标识符置为 true
     SetRef(didAlter);
+    // 将 didChangeSize 标识符置为 true
     (removed || !exists) && SetRef(didChangeSize);
 
+    // 节点中不存在条目放回 undefined
     if (removed && entries.length === 1) {
       return; // undefined
     }
 
+    // 当节点中的包含的条目超过阈值(8)时，该节点需要扩容为 BitmapIndexedNode
     if (!exists && !removed && entries.length >= MAX_ARRAY_MAP_SIZE) {
       return createNodes(ownerID, entries, key, value);
     }
 
+    // 通过 ownerID 标识此次操作是否允许对该节点本身的值进行直接修改
     const isEditable = ownerID && ownerID === this.ownerID;
+    // 如果不允许修改将原先条目拷贝一份
     const newEntries = isEditable ? entries : arrCopy(entries);
+
 
     if (exists) {
       if (removed) {
@@ -255,19 +271,26 @@ class ArrayMapNode {
   }
 }
 
+// BitmapIndexedNode(非叶子) 根据 Bitmap 索引来计算多个子节点位置，同样使用数据来存放多个子节点，但是搜索效率更高，同时数组可以动态扩展，相对而言内存较为友好。用于针对稍多一些的数据量的节点
+// 每一个 BitmapIndexedNode 只取 hash 中的其中 5bit （SHIFT = 5）值进行索引计算
 class BitmapIndexedNode {
   constructor(ownerID, bitmap, nodes) {
     this.ownerID = ownerID;
-    this.bitmap = bitmap;
+    this.bitmap = bitmap;  // 32 位的 number，每一位代表一个子节点的存在与否
     this.nodes = nodes;
   }
 
+  // get和update方法中传递的参数shift，随着递归的深入，每次增加5。
   get(shift, keyHash, key, notSetValue) {
     if (keyHash === undefined) {
       keyHash = hash(key);
     }
+    // 取到当前节点中 5bit 的值(0-31)，并对 1 左移对应位数，从而得到该键值对在bitmap中的索引 bit。
     const bit = 1 << ((shift === 0 ? keyHash : keyHash >>> shift) & MASK);
     const bitmap = this.bitmap;
+    // !为了节约内存空间，BitmapIndexedNode 用于存储子节点的数组与 HashArrayMapNode 不同，并不是固定长度为 32。
+    // 其按照子节点索引值 bit在bitmap中的顺序（从末位到31位），对子节点进行存储。
+    // 因此，每次只需要计算bitmap在当前bit前的 1 的个数（通过popCount方法），即可获取到当前所需节点在数组中的下标。
     return (bitmap & bit) === 0
       ? notSetValue
       : this.nodes[popCount(bitmap & (bit - 1))].get(
@@ -282,6 +305,7 @@ class BitmapIndexedNode {
     if (keyHash === undefined) {
       keyHash = hash(key);
     }
+    // 这里变量名用 keyHashFrag，个人认为比索引之类的更好，因为描述了这计算的本质也即是取出 keyHash 中的某 5 bit 的值
     const keyHashFrag = (shift === 0 ? keyHash : keyHash >>> shift) & MASK;
     const bit = 1 << keyHashFrag;
     const bitmap = this.bitmap;
@@ -294,6 +318,7 @@ class BitmapIndexedNode {
     const idx = popCount(bitmap & (bit - 1));
     const nodes = this.nodes;
     const node = exists ? nodes[idx] : undefined;
+     // 递归计算得到新的节点
     const newNode = updateNode(
       node,
       ownerID,
@@ -309,6 +334,7 @@ class BitmapIndexedNode {
       return this;
     }
 
+    // 如果 BitmapIndexedNode 节点中子节点的数据超过阈值16，则将其扩展为 HashArrayMapNode
     if (!exists && newNode && nodes.length >= MAX_BITMAP_INDEXED_SIZE) {
       return expandNodes(ownerID, nodes, bitmap, keyHashFrag, newNode);
     }
@@ -319,9 +345,11 @@ class BitmapIndexedNode {
       nodes.length === 2 &&
       isLeafNode(nodes[idx ^ 1])
     ) {
+      // 在仅有两个 node 的情况下取到另一个 node
       return nodes[idx ^ 1];
     }
 
+    // 当 ValueNode 归并到 BitmapIndexedNode 且在前几此索引检查中判断值相同，则 nodes.length 将会等于 1 
     if (exists && newNode && nodes.length === 1 && isLeafNode(newNode)) {
       return newNode;
     }
@@ -344,6 +372,7 @@ class BitmapIndexedNode {
   }
 }
 
+// HashArrayMapNode(非叶子) 根据 hash 映射计算对应子节点位置，包含完整的 32 个子节点空间；
 class HashArrayMapNode {
   constructor(ownerID, count, nodes) {
     this.ownerID = ownerID;
@@ -412,6 +441,7 @@ class HashArrayMapNode {
   }
 }
 
+// HashCollisionNode(叶子)：HashCollisionNode 与 ValueNode 相类似，同样只能作为叶子节点，但是其能够存放产生 hash 冲突的多个键值对。
 class HashCollisionNode {
   constructor(ownerID, keyHash, entries) {
     this.ownerID = ownerID;
@@ -490,6 +520,7 @@ class HashCollisionNode {
   }
 }
 
+// ValueNode(叶子) 是最简单的节点类型，仅用于存放一个键值对信息；
 class ValueNode {
   constructor(ownerID, keyHash, entry) {
     this.ownerID = ownerID;
@@ -700,8 +731,10 @@ function isLeafNode(node) {
   );
 }
 
+// 将键值对条目合并到BitmapIndexedNode节点中
 function mergeIntoNode(node, ownerID, shift, keyHash, entry) {
   if (node.keyHash === keyHash) {
+    // 发现 hash 冲突，将该节点转换为 HashCollisionNode.
     return new HashCollisionNode(ownerID, keyHash, [node.entry, entry]);
   }
 
@@ -718,6 +751,7 @@ function mergeIntoNode(node, ownerID, shift, keyHash, entry) {
   return new BitmapIndexedNode(ownerID, (1 << idx1) | (1 << idx2), nodes);
 }
 
+// ArrayMapNode 创建node
 function createNodes(ownerID, entries, key, value) {
   if (!ownerID) {
     ownerID = new OwnerID();
@@ -730,6 +764,7 @@ function createNodes(ownerID, entries, key, value) {
   return node;
 }
 
+// HashArrayMapNode中元素<8,被打包成BitmapNode
 function packNodes(ownerID, nodes, count, excluding) {
   let bitmap = 0;
   let packedII = 0;
@@ -744,6 +779,7 @@ function packNodes(ownerID, nodes, count, excluding) {
   return new BitmapIndexedNode(ownerID, bitmap, packedNodes);
 }
 
+// BitmapNode中元素>16,被扩展成HashArrayMapNode
 function expandNodes(ownerID, nodes, bitmap, including, node) {
   let count = 0;
   const expandedNodes = new Array(SIZE);

@@ -8,6 +8,7 @@ export const MASK = SIZE - 1;
 
 // A consistent shared value representing "not set" which equals nothing other
 // than itself, and nothing that could be provided externally.
+// 标识符.
 export const NOT_SET = {};
 
 // Boolean references, Rough equivalent of `bool &`.
@@ -24,6 +25,9 @@ export function SetRef(ref) {
 // A function which returns a value representing an "owner" for transient writes
 // to tries. The return value will only ever equal itself, and will not equal
 // the return of any subsequent call of this function.
+// 一个函数，用于返回一个表示对 tries 的瞬态写入的“所有者”的值。
+// __ownerID，其代表着允许对该 Map 对象执行修改操作的 owner。
+// __ownerID由new OwnerID()进行创建，其事实上仅仅是一个空的对象。由于每个对象的内存地址均不会相同，因此定义的__ownerID在运行时中是唯一的。
 export function OwnerID() {}
 
 export function ensureSize(iter) {
