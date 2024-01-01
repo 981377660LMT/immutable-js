@@ -657,6 +657,7 @@ function makeMap(size, root, ownerID, hash) {
   return map;
 }
 
+// 所有的空 MAP 都一样而持久化 MAP 是不会被改变的
 let EMPTY_MAP;
 export function emptyMap() {
   return EMPTY_MAP || (EMPTY_MAP = makeMap(0));
